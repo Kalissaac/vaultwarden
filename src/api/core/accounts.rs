@@ -19,6 +19,7 @@ pub fn routes() -> Vec<rocket::Route> {
         get_public_keys,
         post_keys,
         post_password,
+        post_set_password,
         post_kdf,
         post_rotatekey,
         post_sstamp,
@@ -274,6 +275,46 @@ async fn post_password(data: JsonUpcase<ChangePassData>, headers: Headers, conn:
     );
     user.akey = data.Key;
     user.save(&conn).await
+}
+
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct SetPassData {
+    Kdf: i32,
+    KdfIterations: i32,
+    Key: String,
+    Keys: KeysData,
+    MasterPasswordHash: String,
+    MasterPasswordHint: Option<String>,
+    #[allow(dead_code)]
+    OrgIdentifier: String,
+}
+
+#[post("/accounts/set-password", data = "<data>")]
+async fn post_set_password(
+    data: JsonUpcase<SetPassData>,
+    headers: Headers,
+    mut conn: DbConn,
+    ip: ClientIp,
+) -> EmptyResult {
+    let data: SetPassData = data.into_inner().data;
+    let mut user = headers.user;
+
+    user.password_hint = clean_password_hint(&data.MasterPasswordHint);
+    enforce_password_hint_setting(&user.password_hint)?;
+
+    log_user_event(EventType::UserChangedPassword as i32, &user.uuid, headers.device.atype, &ip.ip, &mut conn).await;
+
+    user.client_kdf_iter = data.KdfIterations;
+    user.client_kdf_type = data.Kdf;
+
+    user.set_password(&data.MasterPasswordHash, None);
+    user.akey = data.Key;
+
+    user.private_key = Some(data.Keys.EncryptedPrivateKey);
+    user.public_key = Some(data.Keys.PublicKey);
+
+    user.save(&mut conn).await
 }
 
 #[derive(Deserialize)]
