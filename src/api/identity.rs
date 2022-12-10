@@ -199,7 +199,7 @@ async fn _authorization_login(data: ConnectData, conn: &mut DbConn, ip: &ClientI
 
                         "Kdf": user.client_kdf_type,
                         "KdfIterations": user.client_kdf_iter,
-                        "ResetMasterPassword": false, // TODO: according to official server seems something like: user.password_hash.is_empty(), but would need testing
+                        "ResetMasterPassword": user.password_hash.is_empty(),
                         "scope": "api offline_access",
                         "unofficialServer": true,
                     });
