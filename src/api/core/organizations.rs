@@ -33,6 +33,7 @@ pub fn routes() -> Vec<Route> {
         post_organization,
         get_organization_sso,
         put_organization_sso,
+        get_organization_auto_enroll_status,
         post_organization_collections,
         delete_organization_collection_user,
         post_organization_collection_delete_user,
@@ -57,6 +58,7 @@ pub fn routes() -> Vec<Route> {
         post_org_import,
         list_policies,
         list_policies_token,
+        list_policies_invited_user,
         get_policy,
         put_policy,
         get_organization_tax,
@@ -113,9 +115,6 @@ struct NewCollectionData {
 #[derive(Deserialize, Debug)]
 #[allow(non_snake_case)]
 struct SsoOrganizationData {
-    // authority: Option<String>,
-    // clientId: Option<String>,
-    // clientSecret: Option<String>,
     AcrValues: Option<String>,
     AdditionalEmailClaimTypes: Option<String>,
     AdditionalNameClaimTypes: Option<String>,
@@ -324,6 +323,19 @@ async fn put_organization_sso(
 
     sso_config.save(&conn).await?;
     Ok(Json(sso_config.to_json()))
+}
+
+#[get("/organizations/<domain_hint>/auto-enroll-status")]
+async fn get_organization_auto_enroll_status(domain_hint: String, conn: DbConn) -> JsonResult {
+    let organization = match Organization::find_by_identifier(&domain_hint, &conn).await {
+        Some(o) => o,
+        None => err!("Organization not found!")
+    };
+
+    Ok(Json(json!({
+        "Id": organization.uuid,
+        "ResetPasswordEnabled": false
+    })))
 }
 
 // GET /api/collections?writeOnly=false
@@ -1345,6 +1357,31 @@ async fn list_policies_token(org_id: String, token: String, conn: DbConn) -> Jso
 
     // TODO: We receive the invite token as ?token=<>, validate it contains the org id
     let policies = OrgPolicy::find_by_org(&org_id, &conn).await;
+    let policies_json: Vec<Value> = policies.iter().map(OrgPolicy::to_json).collect();
+
+    Ok(Json(json!({
+        "Data": policies_json,
+        "Object": "list",
+        "ContinuationToken": null
+    })))
+}
+
+#[get("/organizations/<org_id>/policies/invited-user?<userId>")]
+async fn list_policies_invited_user(org_id: String, userId: String, mut conn: DbConn) -> JsonResult {
+    let user = match User::find_by_uuid(&userId, &mut conn).await {
+        Some(u) => u,
+        None => err!("User not found!"),
+    };
+    match UserOrganization::find_by_user_and_org(&user.uuid, &org_id, &mut conn).await {
+        Some(u) => {
+            if u.status != UserOrgStatus::Invited as i32 && u.status != UserOrgStatus::Confirmed as i32 {
+                err_code!("Unauthorized!", 401);
+            }
+        },
+        None => err!("Organization not found!"),
+    };
+
+    let policies = OrgPolicy::find_by_org(&org_id, &mut conn).await;
     let policies_json: Vec<Value> = policies.iter().map(OrgPolicy::to_json).collect();
 
     Ok(Json(json!({
