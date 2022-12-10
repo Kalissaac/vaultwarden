@@ -1,4 +1,4 @@
-use crate::api::EmptyResult;
+use crate::{api::EmptyResult, config::CONFIG};
 use crate::db::DbConn;
 use crate::error::MapResult;
 use serde_json::Value;
@@ -29,8 +29,8 @@ impl SsoConfig {
             uuid: crate::util::get_uuid(),
             org_uuid,
             use_sso: false,
-            callback_path: String::from("http://localhost/#/sso/"),
-            signed_out_callback_path: String::from("http://localhost/#/sso/"),
+            callback_path: format!("{}/sso-connector.html", CONFIG.domain()),
+            signed_out_callback_path: format!("{}/sso-connector.html", CONFIG.domain()),
             authority: None,
             client_id: None,
             client_secret: None,

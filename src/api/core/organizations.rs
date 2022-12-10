@@ -315,9 +315,8 @@ async fn put_organization_sso(
 
     // let sso_config_data = data.Data.unwrap();
 
-    // TODO use real values
-    sso_config.callback_path = "http://localhost:8000/#/sso".to_string(); //data.CallbackPath;
-    sso_config.signed_out_callback_path = "http://localhost:8000/#/sso".to_string(); //data2.Data.unwrap().call
+    sso_config.callback_path = format!("{}/sso-connector.html", CONFIG.domain());
+    sso_config.signed_out_callback_path = format!("{}/sso-connector.html", CONFIG.domain());
 
     sso_config.authority = d.Authority;
     sso_config.client_id = d.ClientId;
