@@ -127,6 +127,7 @@ struct TokenPayload {
     exp: i64,
     email: String,
     nonce: String,
+    name: String,
 }
 
 async fn _authorization_login(data: ConnectData, conn: &mut DbConn, ip: &ClientIp, domain_hint_cookie: &Cookie<'_>) -> JsonResult {
@@ -161,9 +162,25 @@ async fn _authorization_login(data: ConnectData, conn: &mut DbConn, ip: &ClientI
                     let user_email = token.email;
                     let now = Utc::now().naive_utc();
 
-                    // COMMON
-                    // TODO handle missing users, currently this will panic if the user does not exist!
-                    let user = User::find_by_mail(&user_email, conn).await.unwrap();
+                    let mut user = match User::find_by_mail(&user_email, conn).await {
+                        Some(mut user) => {
+                            // TODO: nsure user is linked through sso if not already
+                            user
+                        }
+                        None => User::new(user_email.clone())
+                    };
+                    user.name = token.name;
+                    user.save(conn).await?;
+
+                    let mut user_organization = match UserOrganization::find_by_user_and_org(&user.uuid, &organization.uuid, conn).await {
+                        Some(user_organization) => user_organization,
+                        None => UserOrganization::new(user.uuid.clone(), organization.uuid.clone())
+                    };
+                    // TODO: use oidc groups for authz
+                    user_organization.access_all = false;
+                    user_organization.atype = UserOrgType::User as i32;
+                    user_organization.status = UserOrgStatus::Confirmed as i32;
+                    user_organization.save(conn).await?;
 
                     let (mut device, new_device) = get_device(&data, conn, &user).await;
 
