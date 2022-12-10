@@ -60,7 +60,7 @@ async fn login(data: Form<ConnectData>, conn: DbConn, ip: ClientIp) -> JsonResul
             _check_is_some(&data.org_identifier, "org_identifier cannot be blank")?;
             _check_is_some(&data.device_identifier, "device identifier cannot be blank")?;
 
-            _authorization_login(data, conn, &ip).await
+            _authorization_login(data, &mut conn, &ip).await
         }
         t => err!("Invalid type", t),
     }
@@ -105,7 +105,7 @@ struct TokenPayload {
     nonce: String,
 }
 
-async fn _authorization_login(data: ConnectData, conn: DbConn, ip: &ClientIp) -> JsonResult {
+async fn _authorization_login(data: ConnectData, conn: &mut DbConn, ip: &ClientIp) -> JsonResult {
     let org_identifier = data.org_identifier.as_ref().unwrap();
     let code = data.code.as_ref().unwrap();
 
@@ -131,7 +131,7 @@ async fn _authorization_login(data: ConnectData, conn: DbConn, ip: &ClientIp) ->
 
     match SsoNonce::find_by_org_and_nonce(&organization.uuid, &nonce, &conn).await {
         Some(sso_nonce) => {
-            match sso_nonce.delete(&conn).await {
+            match sso_nonce.delete(conn).await {
                 Ok(_) => {
                     // let expiry = token.exp;
                     let user_email = token.email;
@@ -139,11 +139,11 @@ async fn _authorization_login(data: ConnectData, conn: DbConn, ip: &ClientIp) ->
 
                     // COMMON
                     // TODO handle missing users, currently this will panic if the user does not exist!
-                    let user = User::find_by_mail(&user_email, &conn).await.unwrap();
+                    let user = User::find_by_mail(&user_email, conn).await.unwrap();
 
-                    let (mut device, new_device) = get_device(&data, &conn, &user).await;
+                    let (mut device, new_device) = get_device(&data, conn, &user).await;
 
-                    let twofactor_token = twofactor_auth(&user.uuid, &data, &mut device, ip, &conn).await?;
+                    let twofactor_token = twofactor_auth(&user.uuid, &data, &mut device, ip, conn).await?;
 
                     if CONFIG.mail_enabled() && new_device {
                         if let Err(e) =
@@ -158,12 +158,12 @@ async fn _authorization_login(data: ConnectData, conn: DbConn, ip: &ClientIp) ->
                     }
 
                     device.refresh_token = refresh_token.clone();
-                    device.save(&conn).await?;
+                    device.save(conn).await?;
 
                     let scope_vec = vec!["api".into(), "offline_access".into()];
-                    let orgs = UserOrganization::find_confirmed_by_user(&user.uuid, &conn).await;
+                    let orgs = UserOrganization::find_confirmed_by_user(&user.uuid, conn).await;
                     let (access_token_new, expires_in) = device.refresh_tokens(&user, orgs, scope_vec);
-                    device.save(&conn).await?;
+                    device.save(conn).await?;
 
                     let mut result = json!({
                         "access_token": access_token_new,
@@ -226,7 +226,7 @@ async fn _password_login(data: ConnectData, conn: DbConn, ip: &ClientIp) -> Json
     }
 
     // Check if org policy prevents password login
-    let user_orgs = UserOrganization::find_by_user_and_policy(&user.uuid, OrgPolicyType::RequireSso, &conn).await;
+    let user_orgs = UserOrganization::find_by_user_and_policy(&user.uuid, OrgPolicyType::RequireSso, conn).await;
     if !user_orgs.is_empty() && user_orgs[0].atype != UserOrgType::Owner && user_orgs[0].atype != UserOrgType::Admin {
         // if requires SSO is active, user is in exactly one org by policy rules
         // policy only applies to "non-owner/non-admin" members
