@@ -38,7 +38,9 @@
                             {{/if}}
                         </td>
                         <td class="text-end px-0 small">
+                            <button type="button" class="btn btn-sm btn-link p-0 border-0" data-bs-toggle="modal" data-bs-target="#orgEditModal" data-vw-organizationid="{{Id}}" data-vw-organizationname="{{Name}}">Edit Organization</button>
                             <button type="button" class="btn btn-sm btn-link p-0 border-0" onclick='deleteOrganization({{jsesc Id}}, {{jsesc Name}}, {{jsesc BillingEmail}})'>Delete Organization</button>
+                            <button type="button" class="btn btn-sm btn-link p-0 border-0" data-bs-toggle="modal" data-bs-target="#ssoConfigModal" data-vw-organizationid="{{Id}}" data-vw-organizationname="{{Name}}">Configure SSO</button>
                         </td>
                     </tr>
                     {{/each}}
@@ -47,6 +49,74 @@
         </div>
     </div>
 </main>
+
+<div class="modal fade" id="orgEditModal" tabindex="-1" aria-labelledby="orgEditModalTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="orgEditModalTitle">Edit Organization</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form>
+          <input type="hidden" id="orgEditModal-organizationid"></input>
+          <div class="mb-3">
+            <label for="orgEditModal-name" class="col-form-label">Name:</label>
+            <input type="text" class="form-control" id="orgEditModal-name" required></input>
+          </div>
+          <div class="mb-3">
+            <label for="orgEditModal-email" class="col-form-label">Email:</label>
+            <input type="text" class="form-control" id="orgEditModal-email" required></input>
+          </div>
+          <div class="mb-3">
+            <label for="orgEditModal-identifier" class="col-form-label">Identifier:</label>
+            <input type="text" class="form-control" id="orgEditModal-identifier"></input>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="orgEditModalSubmit">Save changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="ssoConfigModal" tabindex="-1" aria-labelledby="ssoConfigModalTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="ssoConfigModalTitle">SSO Configuration</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form>
+          <input type="hidden" id="sso-organizationid"></input>
+          <div class="mb-3">
+            <label for="sso-enabled" class="form-check-label me-1">Enabled:</label>
+            <input type="checkbox" class="form-check-input" id="sso-enabled">
+          </div>
+          <div class="mb-3">
+            <label for="sso-authority" class="col-form-label">Authority:</label>
+            <input type="url" class="form-control" id="sso-authority">
+          </div>
+          <div class="mb-3">
+            <label for="sso-clientid" class="col-form-label">Client ID:</label>
+            <input type="text" class="form-control" id="sso-clientid"></input>
+          </div>
+          <div class="mb-3">
+            <label for="sso-clientsecret" class="col-form-label">Client Secret:</label>
+            <input type="password" class="form-control" id="sso-clientsecret"></input>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="ssoConfigModalSubmit">Save changes</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <link rel="stylesheet" href="{{urlpath}}/vw_static/datatables.css" />
 <script src="{{urlpath}}/vw_static/jquery-3.6.1.slim.js"></script>
@@ -87,6 +157,77 @@
             "columnDefs": [
                 { "targets": 4, "searchable": false, "orderable": false }
             ]
+        });
+
+        var orgEditModal = document.getElementById("orgEditModal");
+        var orgEditModalTitle = orgEditModal.querySelector(".modal-title");
+        var orgEditModalOrganizationidInput = orgEditModal.querySelector(".modal-body #orgEditModal-organizationid");
+        var orgEditModalNameInput = orgEditModal.querySelector(".modal-body #orgEditModal-name");
+        var orgEditModalEmailInput = orgEditModal.querySelector(".modal-body #orgEditModal-email");
+        var orgEditModalIdentifiernput = orgEditModal.querySelector(".modal-body #orgEditModal-identifier");
+        var orgEditModalSubmit = orgEditModal.querySelector("#orgEditModalSubmit");
+
+        orgEditModal.addEventListener("show.bs.modal", function(event) {
+            var button = event.relatedTarget;
+            var organizationId = button.getAttribute("data-vw-organizationid");
+            var organizationName = button.getAttribute("data-vw-organizationname");
+
+            orgEditModalOrganizationidInput.value = organizationId;
+            orgEditModalTitle.textContent = "Edit Organization " + organizationName;
+
+            fetch("{{urlpath}}/admin/organizations/" + organizationId).then(r => r.ok && r.json()).then(r => {
+                orgEditModalNameInput.value = r.Name;
+                orgEditModalEmailInput.value = r.BillingEmail;
+                orgEditModalIdentifiernput.value = r.Identifier;
+            });
+        });
+        orgEditModalSubmit.addEventListener("click", function() {
+            _post("{{urlpath}}/admin/organizations/" + orgEditModalOrganizationidInput.value,
+                        "Organization edited correctly",
+                        "Error editing organization",
+                        JSON.stringify({
+                            Name: orgEditModalNameInput.value,
+                            BillingEmail: orgEditModalEmailInput.value,
+                            Identifier: orgEditModalIdentifiernput.value
+                        }));
+        });
+
+        var ssoConfigModal = document.getElementById("ssoConfigModal");
+        var ssoConfigModalTitle = ssoConfigModal.querySelector(".modal-title");
+        var ssoOrganizationidInput = ssoConfigModal.querySelector(".modal-body #sso-organizationid");
+        var ssoEnabledInput = ssoConfigModal.querySelector(".modal-body #sso-enabled");
+        var ssoAuthorityInput = ssoConfigModal.querySelector(".modal-body #sso-authority");
+        var ssoClientidInput = ssoConfigModal.querySelector(".modal-body #sso-clientid");
+        var ssoClientsecretInput = ssoConfigModal.querySelector(".modal-body #sso-clientsecret");
+        var ssoConfigModalSubmit = ssoConfigModal.querySelector("#ssoConfigModalSubmit");
+
+        ssoConfigModal.addEventListener("show.bs.modal", function(event) {
+            var button = event.relatedTarget;
+            var organizationId = button.getAttribute("data-vw-organizationid");
+            var organizationName = button.getAttribute("data-vw-organizationname");
+
+            ssoOrganizationidInput.value = organizationId;
+            ssoConfigModalTitle.textContent = "SSO Configuration for " + organizationName;
+
+            fetch("{{urlpath}}/admin/organizations/" + organizationId + "/sso").then(r => r.ok && r.json()).then(r => {
+                ssoEnabledInput.checked = r.UseSso;
+                ssoAuthorityInput.value = r.Authority;
+                ssoClientidInput.value = r.ClientId;
+                ssoClientsecretInput.value = r.ClientSecret;
+            });
+        });
+        ssoConfigModalSubmit.addEventListener("click", function() {
+           _post("{{urlpath}}/admin/organizations/" + ssoOrganizationidInput.value + "/sso",
+                        "Organization SSO configured correctly",
+                        "Error configuring organization SSO",
+                        JSON.stringify({
+                            Enabled: ssoEnabledInput.checked,
+                            Data: {
+                                Authority: ssoAuthorityInput.value,
+                                ClientId: ssoClientidInput.value,
+                                ClientSecret: ssoClientsecretInput.value
+                            }
+                        }));
         });
     });
 </script>
