@@ -312,11 +312,6 @@ async fn put_organization_sso(
 
     sso_config.use_sso = p.Enabled.unwrap_or_default();
 
-    // let sso_config_data = data.Data.unwrap();
-
-    sso_config.callback_path = format!("{}/sso-connector.html", CONFIG.domain());
-    sso_config.signed_out_callback_path = format!("{}/sso-connector.html", CONFIG.domain());
-
     sso_config.authority = d.Authority;
     sso_config.client_id = d.ClientId;
     sso_config.client_secret = d.ClientSecret;
@@ -1374,7 +1369,7 @@ async fn list_policies_invited_user(org_id: String, userId: String, mut conn: Db
     };
     match UserOrganization::find_by_user_and_org(&user.uuid, &org_id, &mut conn).await {
         Some(u) => {
-            if u.status != UserOrgStatus::Invited as i32 && u.status != UserOrgStatus::Confirmed as i32 {
+            if u.status != UserOrgStatus::Invited as i32 {
                 err_code!("Unauthorized!", 401);
             }
         },
