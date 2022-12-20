@@ -1,6 +1,6 @@
-use crate::{api::EmptyResult, config::CONFIG};
 use crate::db::DbConn;
 use crate::error::MapResult;
+use crate::{api::EmptyResult, config::CONFIG};
 use serde_json::Value;
 
 use super::Organization;
@@ -52,7 +52,7 @@ impl SsoConfig {
 
 /// Database methods
 impl SsoConfig {
-    pub async fn save(&self, conn: &DbConn) -> EmptyResult {
+    pub async fn save(&self, conn: &mut DbConn) -> EmptyResult {
         db_run! { conn:
             sqlite, mysql {
                 match diesel::replace_into(sso_config::table)

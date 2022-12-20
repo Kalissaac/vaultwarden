@@ -1,6 +1,5 @@
 use num_traits::FromPrimitive;
-use rocket::serde::json::Json;
-use rocket::Route;
+use rocket::{http::Status, serde::json::Json, Route};
 use serde_json::Value;
 
 use crate::{
@@ -139,37 +138,37 @@ struct NewCollectionGroupData {
 #[derive(Deserialize, Debug)]
 #[allow(non_snake_case)]
 struct SsoOrganizationData {
-    AcrValues: Option<String>,
-    AdditionalEmailClaimTypes: Option<String>,
-    AdditionalNameClaimTypes: Option<String>,
-    AdditionalScopes: Option<String>,
-    AdditionalUserIdClaimTypes: Option<String>,
     Authority: Option<String>,
     ClientId: Option<String>,
     ClientSecret: Option<String>,
-    ConfigType: Option<String>,
-    ExpectedReturnAcrValue: Option<String>,
-    GetClaimsFromUserInfoEndpoint: Option<bool>,
-    IdpAllowUnsolicitedAuthnResponse: Option<bool>,
-    IdpArtifactResolutionServiceUrl: Option<String>,
-    IdpBindingType: Option<u8>,
-    IdpDisableOutboundLogoutRequests: Option<bool>,
-    IdpEntityId: Option<String>,
-    IdpOutboundSigningAlgorithm: Option<String>,
-    IdpSingleLogoutServiceUrl: Option<String>,
-    IdpSingleSignOnServiceUrl: Option<String>,
-    IdpWantAuthnRequestsSigned: Option<bool>,
-    IdpX509PublicCert: Option<String>,
-    KeyConnectorUrlY: Option<String>,
-    KeyConnectorEnabled: Option<bool>,
-    MetadataAddress: Option<String>,
-    RedirectBehavior: Option<String>,
-    SpMinIncomingSigningAlgorithm: Option<String>,
-    SpNameIdFormat: Option<u8>,
-    SpOutboundSigningAlgorithm: Option<String>,
-    SpSigningBehavior: Option<u8>,
-    SpValidateCertificates: Option<bool>,
-    SpWantAssertionsSigned: Option<bool>,
+    // AcrValues: Option<String>,
+    // AdditionalEmailClaimTypes: Option<String>,
+    // AdditionalNameClaimTypes: Option<String>,
+    // AdditionalScopes: Option<String>,
+    // AdditionalUserIdClaimTypes: Option<String>,
+    // ConfigType: Option<String>,
+    // ExpectedReturnAcrValue: Option<String>,
+    // GetClaimsFromUserInfoEndpoint: Option<bool>,
+    // IdpAllowUnsolicitedAuthnResponse: Option<bool>,
+    // IdpArtifactResolutionServiceUrl: Option<String>,
+    // IdpBindingType: Option<u8>,
+    // IdpDisableOutboundLogoutRequests: Option<bool>,
+    // IdpEntityId: Option<String>,
+    // IdpOutboundSigningAlgorithm: Option<String>,
+    // IdpSingleLogoutServiceUrl: Option<String>,
+    // IdpSingleSignOnServiceUrl: Option<String>,
+    // IdpWantAuthnRequestsSigned: Option<bool>,
+    // IdpX509PublicCert: Option<String>,
+    // KeyConnectorUrlY: Option<String>,
+    // KeyConnectorEnabled: Option<bool>,
+    // MetadataAddress: Option<String>,
+    // RedirectBehavior: Option<String>,
+    // SpMinIncomingSigningAlgorithm: Option<String>,
+    // SpNameIdFormat: Option<u8>,
+    // SpOutboundSigningAlgorithm: Option<String>,
+    // SpSigningBehavior: Option<u8>,
+    // SpValidateCertificates: Option<bool>,
+    // SpWantAssertionsSigned: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -349,7 +348,7 @@ async fn put_organization_sso(
     org_id: String,
     _headers: OwnerHeaders,
     data: JsonUpcase<OrganizationSsoUpdateData>,
-    conn: DbConn,
+    mut conn: DbConn,
 ) -> JsonResult {
     let p: OrganizationSsoUpdateData = data.into_inner().data;
     let d: SsoOrganizationData = p.Data.unwrap();
@@ -365,7 +364,7 @@ async fn put_organization_sso(
     sso_config.client_id = d.ClientId;
     sso_config.client_secret = d.ClientSecret;
 
-    sso_config.save(&conn).await?;
+    sso_config.save(&mut conn).await?;
     Ok(Json(sso_config.to_json()))
 }
 
@@ -373,7 +372,7 @@ async fn put_organization_sso(
 async fn get_organization_auto_enroll_status(domain_hint: String, conn: DbConn) -> JsonResult {
     let organization = match Organization::find_by_identifier(&domain_hint, &conn).await {
         Some(o) => o,
-        None => err!("Organization not found!")
+        None => err!("Organization not found!"),
     };
 
     Ok(Json(json!({
@@ -1540,6 +1539,7 @@ async fn list_policies_token(org_id: String, token: String, mut conn: DbConn) ->
 }
 
 #[get("/organizations/<org_id>/policies/invited-user?<userId>")]
+#[allow(non_snake_case)]
 async fn list_policies_invited_user(org_id: String, userId: String, mut conn: DbConn) -> JsonResult {
     let user = match User::find_by_uuid(&userId, &mut conn).await {
         Some(u) => u,
@@ -1548,9 +1548,9 @@ async fn list_policies_invited_user(org_id: String, userId: String, mut conn: Db
     match UserOrganization::find_by_user_and_org(&user.uuid, &org_id, &mut conn).await {
         Some(u) => {
             if u.status != UserOrgStatus::Invited as i32 {
-                err_code!("Unauthorized!", 401);
+                err_code!("Unauthorized!", Status::Unauthorized.code);
             }
-        },
+        }
         None => err!("Organization not found!"),
     };
 

@@ -145,7 +145,7 @@ pico-args = "0.5.0"
 paste = "1.0.10"
 governor = "0.5.1"
 
-# OIDC SSo
+# OIDC SSO
 openidconnect = "2.3.2"
 
 # Check client versions for specific features.

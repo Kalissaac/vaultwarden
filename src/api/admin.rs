@@ -518,7 +518,7 @@ async fn update_organization(
     uuid: String,
     _token: AdminToken,
     data: JsonUpcase<OrganizationUpdateData>,
-    mut conn: DbConn
+    mut conn: DbConn,
 ) -> JsonResult {
     let data: OrganizationUpdateData = data.into_inner().data;
 
@@ -566,7 +566,7 @@ async fn update_organization_sso(
     uuid: String,
     _token: AdminToken,
     data: JsonUpcase<OrganizationSsoUpdateData>,
-    conn: DbConn,
+    mut conn: DbConn,
 ) -> JsonResult {
     let p: OrganizationSsoUpdateData = data.into_inner().data;
     let d: SsoOrganizationData = p.Data.unwrap();
@@ -582,7 +582,7 @@ async fn update_organization_sso(
     sso_config.client_id = d.ClientId;
     sso_config.client_secret = d.ClientSecret;
 
-    sso_config.save(&conn).await?;
+    sso_config.save(&mut conn).await?;
     Ok(Json(sso_config.to_json()))
 }
 

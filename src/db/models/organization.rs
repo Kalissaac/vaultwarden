@@ -154,11 +154,12 @@ impl Organization {
             "UseGroups": CONFIG.org_groups_enabled(),
             "UseTotp": true,
             "UsePolicies": true,
+            "UseSso": true,
+            // "UseKeyConnector": false, // Not supported
             "SelfHost": true,
             "UseApi": false, // Not supported
             "HasPublicAndPrivateKeys": self.private_key.is_some() && self.public_key.is_some(),
             "UseResetPassword": false, // Not supported
-            "UseSso": true,
 
             "BusinessName": null,
             "BusinessAddress1": null,

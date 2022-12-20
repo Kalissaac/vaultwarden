@@ -29,7 +29,13 @@ pub fn routes() -> Vec<Route> {
 }
 
 #[post("/connect/token", data = "<data>")]
-async fn login(data: Form<ConnectData>, client_header: ClientHeaders, mut conn: DbConn, ip: ClientIp, cookie_jar: &CookieJar<'_>) -> JsonResult {
+async fn login(
+    data: Form<ConnectData>,
+    client_header: ClientHeaders,
+    mut conn: DbConn,
+    ip: ClientIp,
+    cookie_jar: &CookieJar<'_>,
+) -> JsonResult {
     let data: ConnectData = data.into_inner();
 
     let mut user_uuid: Option<String> = None;
@@ -134,12 +140,17 @@ struct TokenPayload {
     name: String,
 }
 
-async fn _authorization_login(data: ConnectData, conn: &mut DbConn, ip: &ClientIp, domain_hint_cookie: &Cookie<'_>) -> JsonResult {
+async fn _authorization_login(
+    data: ConnectData,
+    conn: &mut DbConn,
+    ip: &ClientIp,
+    domain_hint_cookie: &Cookie<'_>,
+) -> JsonResult {
     let org_identifier = domain_hint_cookie.value();
     let code = data.code.as_ref().unwrap();
 
-    let organization = Organization::find_by_identifier(org_identifier, &conn).await.unwrap();
-    let sso_config = SsoConfig::find_by_org(&organization.uuid, &conn).await.unwrap();
+    let organization = Organization::find_by_identifier(org_identifier, conn).await.unwrap();
+    let sso_config = SsoConfig::find_by_org(&organization.uuid, conn).await.unwrap();
 
     let (_access_token, refresh_token, id_token) = match get_auth_code_access_token(code, &sso_config).await {
         Ok((_access_token, refresh_token, id_token)) => (_access_token, refresh_token, id_token),
@@ -158,7 +169,7 @@ async fn _authorization_login(data: ConnectData, conn: &mut DbConn, ip: &ClientI
     // let expiry = token.exp;
     let nonce = token.nonce;
 
-    match SsoNonce::find_by_org_and_nonce(&organization.uuid, &nonce, &conn).await {
+    match SsoNonce::find_by_org_and_nonce(&organization.uuid, &nonce, conn).await {
         Some(sso_nonce) => {
             match sso_nonce.delete(conn).await {
                 Ok(_) => {
@@ -166,20 +177,20 @@ async fn _authorization_login(data: ConnectData, conn: &mut DbConn, ip: &ClientI
                     let user_email = token.email;
                     let now = Utc::now().naive_utc();
 
+                    // FIXME: change to find user with email who is also a member of the same organization
+                    // currently is vulnerable to an account takeover attack by someone using a malicious idp
                     let mut user = match User::find_by_mail(&user_email, conn).await {
-                        Some(mut user) => {
-                            // TODO: nsure user is linked through sso if not already
-                            user
-                        }
-                        None => User::new(user_email.clone())
+                        Some(u) => u,
+                        None => User::new(user_email.clone()),
                     };
                     user.name = token.name;
                     user.save(conn).await?;
 
-                    let mut user_organization = match UserOrganization::find_by_user_and_org(&user.uuid, &organization.uuid, conn).await {
-                        Some(user_organization) => user_organization,
-                        None => UserOrganization::new(user.uuid.clone(), organization.uuid.clone())
-                    };
+                    let mut user_organization =
+                        match UserOrganization::find_by_user_and_org(&user.uuid, &organization.uuid, conn).await {
+                            Some(user_organization) => user_organization,
+                            None => UserOrganization::new(user.uuid.clone(), organization.uuid.clone()),
+                        };
                     // TODO: use oidc groups for authz
                     user_organization.access_all = false;
                     user_organization.atype = UserOrgType::User as i32;
@@ -217,7 +228,6 @@ async fn _authorization_login(data: ConnectData, conn: &mut DbConn, ip: &ClientI
                         "refresh_token": refresh_token,
                         "Key": user.akey,
                         "PrivateKey": user.private_key,
-
                         "Kdf": user.client_kdf_type,
                         "KdfIterations": user.client_kdf_iter,
                         "ResetMasterPassword": user.password_hash.is_empty(),
@@ -732,32 +742,28 @@ fn _check_is_some<T>(value: &Option<T>, msg: &str) -> EmptyResult {
 
 #[get("/account/prevalidate?<domainHint>")]
 #[allow(non_snake_case)]
-// The compiler warns about unreachable code here. But I've tested it, and it seems to work
-// as expected. All errors appear to be reachable, as is the Ok response.
-#[allow(unreachable_code)]
 async fn prevalidate(domainHint: String, conn: DbConn) -> JsonResult {
     let empty_result = json!({});
 
-    // TODO: fix panic on failig to retrive (no unwrap on null)
-    let organization = Organization::find_by_identifier(&domainHint, &conn).await.unwrap();
+    let organization = match Organization::find_by_identifier(&domainHint, &conn).await {
+        Some(o) => o,
+        None => err_code!("Organization does not exist", Status::BadRequest.code),
+    };
 
-    let sso_config = SsoConfig::find_by_org(&organization.uuid, &conn);
-    match sso_config.await {
+    match SsoConfig::find_by_org(&organization.uuid, &conn).await {
         Some(sso_config) => {
             if !sso_config.use_sso {
-                return err_code!("SSO Not allowed for organization", Status::BadRequest.code);
+                err_code!("SSO not allowed for organization", Status::BadRequest.code);
             }
             if sso_config.authority.is_none() || sso_config.client_id.is_none() || sso_config.client_secret.is_none() {
-                return err_code!("Organization is incorrectly configured for SSO", Status::BadRequest.code);
+                err_code!("Organization is incorrectly configured for SSO", Status::BadRequest.code);
             }
         }
-        None => {
-            return err_code!("Unable to find sso config", Status::BadRequest.code);
-        }
+        None => err_code!("Unable to find SSO config", Status::BadRequest.code),
     }
 
     if domainHint.is_empty() {
-        return err_code!("No Organization Identifier Provided", Status::BadRequest.code);
+        err_code!("No organization identifier provided", Status::BadRequest.code);
     }
 
     Ok(Json(empty_result))
@@ -793,7 +799,12 @@ async fn get_client_from_sso_config(sso_config: &SsoConfig) -> Result<CoreClient
 }
 
 #[get("/connect/authorize?<domain_hint>&<state>")]
-async fn authorize(domain_hint: String, state: String, conn: DbConn, cookie_jar: &CookieJar<'_>) -> ApiResult<Redirect> {
+async fn authorize(
+    domain_hint: String,
+    state: String,
+    conn: DbConn,
+    cookie_jar: &CookieJar<'_>,
+) -> ApiResult<Redirect> {
     let organization = Organization::find_by_identifier(&domain_hint, &conn).await.unwrap();
     let sso_config = SsoConfig::find_by_org(&organization.uuid, &conn).await.unwrap();
 
@@ -826,10 +837,7 @@ async fn authorize(domain_hint: String, state: String, conn: DbConn, cookie_jar:
             authorize_url.set_query(Some(full_query.as_str()));
 
             // set cookie with user id here
-            let identity_cookie = Cookie::build("domain_hint", domain_hint)
-                .path("/")
-                .secure(true)
-                .finish();
+            let identity_cookie = Cookie::build("domain_hint", domain_hint).path("/").secure(true).finish();
             cookie_jar.add(identity_cookie);
 
             Ok(Redirect::to(authorize_url.to_string()))
