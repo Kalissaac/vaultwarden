@@ -194,7 +194,9 @@ async fn _authorization_login(
                     // TODO: use oidc groups for authz
                     user_organization.access_all = false;
                     user_organization.atype = UserOrgType::User as i32;
-                    user_organization.status = UserOrgStatus::Confirmed as i32;
+                    if user_organization.status == UserOrgStatus::Invited as i32 {
+                        user_organization.status = UserOrgStatus::Accepted as i32;
+                    }
                     user_organization.save(conn).await?;
 
                     let (mut device, new_device) = get_device(&data, conn, &user).await;
