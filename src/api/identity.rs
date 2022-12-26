@@ -177,10 +177,15 @@ async fn _authorization_login(
                     let user_email = token.email;
                     let now = Utc::now().naive_utc();
 
-                    // FIXME: change to find user with email who is also a member of the same organization
-                    // currently is vulnerable to an account takeover attack by someone using a malicious idp
                     let mut user = match User::find_by_mail(&user_email, conn).await {
-                        Some(u) => u,
+                        Some(user) => {
+                            let user_organization =
+                                UserOrganization::find_by_user_and_org(&user.uuid, &organization.uuid, conn).await;
+                            if user_organization.is_none() || user_organization.unwrap().status < 0 {
+                                err!("User account already exists with email!");
+                            }
+                            user
+                        }
                         None => User::new(user_email.clone()),
                     };
                     user.name = token.name;
