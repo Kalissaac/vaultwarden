@@ -377,7 +377,7 @@ async fn get_organization_auto_enroll_status(domain_hint: String, conn: DbConn) 
 
     Ok(Json(json!({
         "Id": organization.uuid,
-        "ResetPasswordEnabled": false
+        "ResetPasswordEnabled": false // Not supported
     })))
 }
 
