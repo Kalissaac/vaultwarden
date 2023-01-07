@@ -13,6 +13,7 @@ db_object! {
         pub uuid: String,
         pub name: String,
         pub billing_email: String,
+        pub identifier: Option<String>,
         pub private_key: Option<String>,
         pub public_key: Option<String>,
     }
@@ -134,13 +135,14 @@ impl Organization {
             billing_email,
             private_key,
             public_key,
+            identifier: None,
         }
     }
     // https://github.com/bitwarden/server/blob/13d1e74d6960cf0d042620b72d85bf583a4236f7/src/Api/Models/Response/Organizations/OrganizationResponseModel.cs
     pub fn to_json(&self) -> Value {
         json!({
             "Id": self.uuid,
-            "Identifier": null, // not supported by us
+            "Identifier": self.identifier,
             "Name": self.name,
             "Seats": 10, // The value doesn't matter, we don't check server-side
             // "MaxAutoscaleSeats": null, // The value doesn't matter, we don't check server-side
@@ -153,7 +155,7 @@ impl Organization {
             "UseTotp": true,
             "UsePolicies": true,
             // "UseScim": false, // Not supported (Not AGPLv3 Licensed)
-            "UseSso": false, // Not supported
+            "UseSso": true,
             // "UseKeyConnector": false, // Not supported
             "SelfHost": true,
             "UseApi": false, // Not supported
@@ -282,6 +284,15 @@ impl Organization {
         }}
     }
 
+    pub async fn find_by_identifier(identifier: &str, conn: &DbConn) -> Option<Self> {
+        db_run! { conn: {
+            organizations::table
+                .filter(organizations::identifier.eq(identifier))
+                .first::<OrganizationDb>(conn)
+                .ok().from_db()
+        }}
+    }
+
     pub async fn get_all(conn: &mut DbConn) -> Vec<Self> {
         db_run! { conn: {
             organizations::table.load::<OrganizationDb>(conn).expect("Error loading organizations").from_db()
@@ -312,8 +323,8 @@ impl UserOrganization {
             "SelfHost": true,
             "HasPublicAndPrivateKeys": org.private_key.is_some() && org.public_key.is_some(),
             "ResetPasswordEnrolled": false, // Not supported
-            "SsoBound": false, // Not supported
-            "UseSso": false, // Not supported
+            "SsoBound": true,
+            "UseSso": true,
             "ProviderId": null,
             "ProviderName": null,
             // "KeyConnectorEnabled": false,
@@ -615,6 +626,19 @@ impl UserOrganization {
             users_organizations::table
                 .filter(users_organizations::user_uuid.eq(user_uuid))
                 .filter(users_organizations::org_uuid.eq(org_uuid))
+                .first::<UserOrganizationDb>(conn)
+                .ok().from_db()
+        }}
+    }
+
+    pub async fn find_by_user_and_identifier(user_uuid: &str, org_identifier: &str, conn: &mut DbConn) -> Option<Self> {
+        db_run! { conn: {
+            users_organizations::table
+                .inner_join(organizations::table.on(
+                    organizations::identifier.eq(org_identifier)
+                ))
+                .filter(users_organizations::user_uuid.eq(user_uuid))
+                .select(users_organizations::all_columns)
                 .first::<UserOrganizationDb>(conn)
                 .ok().from_db()
         }}

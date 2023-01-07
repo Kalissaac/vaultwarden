@@ -1,6 +1,5 @@
 use num_traits::FromPrimitive;
-use rocket::serde::json::Json;
-use rocket::Route;
+use rocket::{http::Status, serde::json::Json, Route};
 use serde_json::Value;
 
 use crate::{
@@ -31,6 +30,9 @@ pub fn routes() -> Vec<Route> {
         put_collection_users,
         put_organization,
         post_organization,
+        get_organization_sso,
+        post_organization_sso,
+        get_organization_auto_enroll_status,
         post_organization_collections,
         delete_organization_collection_user,
         post_organization_collection_delete_user,
@@ -55,6 +57,7 @@ pub fn routes() -> Vec<Route> {
         post_org_import,
         list_policies,
         list_policies_token,
+        list_policies_invited_user,
         get_policy,
         put_policy,
         get_organization_tax,
@@ -107,6 +110,14 @@ struct OrgData {
 struct OrganizationUpdateData {
     BillingEmail: String,
     Name: String,
+    Identifier: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(non_snake_case)]
+struct OrganizationSsoUpdateData {
+    Enabled: bool,
+    Data: SsoOrganizationData,
 }
 
 #[derive(Deserialize)]
@@ -122,6 +133,42 @@ struct NewCollectionGroupData {
     HidePasswords: bool,
     Id: String,
     ReadOnly: bool,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(non_snake_case)]
+struct SsoOrganizationData {
+    Authority: Option<String>,
+    ClientId: Option<String>,
+    ClientSecret: Option<String>,
+    // AcrValues: Option<String>,
+    // AdditionalEmailClaimTypes: Option<String>,
+    // AdditionalNameClaimTypes: Option<String>,
+    // AdditionalScopes: Option<String>,
+    // AdditionalUserIdClaimTypes: Option<String>,
+    // ConfigType: Option<String>,
+    // ExpectedReturnAcrValue: Option<String>,
+    // GetClaimsFromUserInfoEndpoint: Option<bool>,
+    // IdpAllowUnsolicitedAuthnResponse: Option<bool>,
+    // IdpArtifactResolutionServiceUrl: Option<String>,
+    // IdpBindingType: Option<u8>,
+    // IdpDisableOutboundLogoutRequests: Option<bool>,
+    // IdpEntityId: Option<String>,
+    // IdpOutboundSigningAlgorithm: Option<String>,
+    // IdpSingleLogoutServiceUrl: Option<String>,
+    // IdpSingleSignOnServiceUrl: Option<String>,
+    // IdpWantAuthnRequestsSigned: Option<bool>,
+    // IdpX509PublicCert: Option<String>,
+    // KeyConnectorUrlY: Option<String>,
+    // KeyConnectorEnabled: Option<bool>,
+    // MetadataAddress: Option<String>,
+    // RedirectBehavior: Option<String>,
+    // SpMinIncomingSigningAlgorithm: Option<String>,
+    // SpNameIdFormat: Option<u8>,
+    // SpOutboundSigningAlgorithm: Option<String>,
+    // SpSigningBehavior: Option<u8>,
+    // SpValidateCertificates: Option<bool>,
+    // SpWantAssertionsSigned: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -158,6 +205,7 @@ async fn create_organization(headers: Headers, data: JsonUpcase<OrgData>, mut co
 
     let org = Organization::new(data.Name, data.BillingEmail, private_key, public_key);
     let mut user_org = UserOrganization::new(headers.user.uuid, org.uuid.clone());
+    let sso_config = SsoConfig::new(org.uuid.clone());
     let collection = Collection::new(org.uuid.clone(), data.CollectionName);
 
     user_org.akey = data.Key;
@@ -167,6 +215,7 @@ async fn create_organization(headers: Headers, data: JsonUpcase<OrgData>, mut co
 
     org.save(&mut conn).await?;
     user_org.save(&mut conn).await?;
+    sso_config.save(&mut conn).await?;
     collection.save(&mut conn).await?;
 
     Ok(Json(org.to_json()))
@@ -265,6 +314,7 @@ async fn post_organization(
 
     org.name = data.Name;
     org.billing_email = data.BillingEmail;
+    org.identifier = data.Identifier;
 
     org.save(&mut conn).await?;
 
@@ -280,6 +330,55 @@ async fn post_organization(
     .await;
 
     Ok(Json(org.to_json()))
+}
+
+#[get("/organizations/<org_id>/sso")]
+async fn get_organization_sso(org_id: String, _headers: OwnerHeaders, conn: DbConn) -> JsonResult {
+    match SsoConfig::find_by_org(&org_id, &conn).await {
+        Some(sso_config) => {
+            let config_json = Json(sso_config.to_json());
+            Ok(config_json)
+        }
+        None => err!("Can't find organization sso config"),
+    }
+}
+
+#[post("/organizations/<org_id>/sso", data = "<data>")]
+async fn post_organization_sso(
+    org_id: String,
+    _headers: OwnerHeaders,
+    data: JsonUpcase<OrganizationSsoUpdateData>,
+    mut conn: DbConn,
+) -> JsonResult {
+    let p = data.into_inner().data;
+    let d = p.Data;
+
+    let mut sso_config = match SsoConfig::find_by_org(&org_id, &conn).await {
+        Some(sso_config) => sso_config,
+        None => SsoConfig::new(org_id),
+    };
+
+    sso_config.use_sso = p.Enabled;
+
+    sso_config.authority = d.Authority;
+    sso_config.client_id = d.ClientId;
+    sso_config.client_secret = d.ClientSecret;
+
+    sso_config.save(&mut conn).await?;
+    Ok(Json(sso_config.to_json()))
+}
+
+#[get("/organizations/<domain_hint>/auto-enroll-status")]
+async fn get_organization_auto_enroll_status(domain_hint: String, conn: DbConn) -> JsonResult {
+    let organization = match Organization::find_by_identifier(&domain_hint, &conn).await {
+        Some(o) => o,
+        None => err!("Organization not found!"),
+    };
+
+    Ok(Json(json!({
+        "Id": organization.uuid,
+        "ResetPasswordEnabled": false // Not supported
+    })))
 }
 
 // GET /api/collections?writeOnly=false
@@ -1429,6 +1528,32 @@ async fn list_policies_token(org_id: String, token: String, mut conn: DbConn) ->
     }
 
     // TODO: We receive the invite token as ?token=<>, validate it contains the org id
+    let policies = OrgPolicy::find_by_org(&org_id, &mut conn).await;
+    let policies_json: Vec<Value> = policies.iter().map(OrgPolicy::to_json).collect();
+
+    Ok(Json(json!({
+        "Data": policies_json,
+        "Object": "list",
+        "ContinuationToken": null
+    })))
+}
+
+#[get("/organizations/<org_id>/policies/invited-user?<userId>")]
+#[allow(non_snake_case)]
+async fn list_policies_invited_user(org_id: String, userId: String, mut conn: DbConn) -> JsonResult {
+    let user = match User::find_by_uuid(&userId, &mut conn).await {
+        Some(u) => u,
+        None => err!("User not found!"),
+    };
+    match UserOrganization::find_by_user_and_org(&user.uuid, &org_id, &mut conn).await {
+        Some(u) => {
+            if u.status != UserOrgStatus::Invited as i32 {
+                err_code!("Unauthorized!", Status::Unauthorized.code);
+            }
+        }
+        None => err!("Organization not found!"),
+    };
+
     let policies = OrgPolicy::find_by_org(&org_id, &mut conn).await;
     let policies_json: Vec<Value> = policies.iter().map(OrgPolicy::to_json).collect();
 

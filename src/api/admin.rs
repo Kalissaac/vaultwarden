@@ -13,7 +13,7 @@ use rocket::{
 };
 
 use crate::{
-    api::{core::log_event, ApiResult, EmptyResult, JsonResult, NumberOrString},
+    api::{core::log_event, ApiResult, EmptyResult, JsonResult, JsonUpcase, NumberOrString},
     auth::{decode_admin, encode_jwt, generate_admin_claims, ClientIp},
     config::ConfigBuilder,
     db::{backup_database, get_sql_server_version, models::*, DbConn, DbConnType},
@@ -50,7 +50,11 @@ pub fn routes() -> Vec<Route> {
         test_smtp,
         users_overview,
         organizations_overview,
+        get_organization,
+        update_organization,
         delete_organization,
+        get_organization_sso,
+        post_organization_sso,
         diagnostics,
         get_diagnostics_config
     ]
@@ -498,10 +502,103 @@ async fn organizations_overview(_token: AdminToken, mut conn: DbConn) -> ApiResu
     Ok(Html(text))
 }
 
+#[get("/organizations/<uuid>")]
+async fn get_organization(uuid: String, _token: AdminToken, mut conn: DbConn) -> JsonResult {
+    match Organization::find_by_uuid(&uuid, &mut conn).await {
+        Some(org) => {
+            let org_json = Json(org.to_json());
+            Ok(org_json)
+        }
+        None => err!("Can't find organization"),
+    }
+}
+
+#[post("/organizations/<uuid>", data = "<data>")]
+async fn update_organization(
+    uuid: String,
+    _token: AdminToken,
+    data: JsonUpcase<OrganizationUpdateData>,
+    mut conn: DbConn,
+) -> JsonResult {
+    let data: OrganizationUpdateData = data.into_inner().data;
+
+    let mut org = match Organization::find_by_uuid(&uuid, &mut conn).await {
+        Some(organization) => organization,
+        None => err!("Can't find organization details"),
+    };
+
+    org.name = data.Name;
+    org.billing_email = data.BillingEmail;
+    org.identifier = data.Identifier;
+
+    org.save(&mut conn).await?;
+
+    Ok(Json(org.to_json()))
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(non_snake_case)]
+struct OrganizationUpdateData {
+    BillingEmail: String,
+    Name: String,
+    Identifier: Option<String>,
+}
+
 #[post("/organizations/<uuid>/delete")]
 async fn delete_organization(uuid: String, _token: AdminToken, mut conn: DbConn) -> EmptyResult {
     let org = Organization::find_by_uuid(&uuid, &mut conn).await.map_res("Organization doesn't exist")?;
     org.delete(&mut conn).await
+}
+
+#[get("/organizations/<uuid>/sso")]
+async fn get_organization_sso(uuid: String, _token: AdminToken, conn: DbConn) -> JsonResult {
+    match SsoConfig::find_by_org(&uuid, &conn).await {
+        Some(sso_config) => {
+            let config_json = Json(sso_config.to_json());
+            Ok(config_json)
+        }
+        None => err!("Can't find organization sso config"),
+    }
+}
+
+#[post("/organizations/<uuid>/sso", data = "<data>")]
+async fn post_organization_sso(
+    uuid: String,
+    _token: AdminToken,
+    data: JsonUpcase<OrganizationSsoUpdateData>,
+    mut conn: DbConn,
+) -> JsonResult {
+    let p = data.into_inner().data;
+    let d = p.Data;
+
+    let mut sso_config = match SsoConfig::find_by_org(&uuid, &conn).await {
+        Some(sso_config) => sso_config,
+        None => SsoConfig::new(uuid),
+    };
+
+    sso_config.use_sso = p.Enabled;
+
+    sso_config.authority = d.Authority;
+    sso_config.client_id = d.ClientId;
+    sso_config.client_secret = d.ClientSecret;
+
+    sso_config.save(&mut conn).await?;
+    Ok(Json(sso_config.to_json()))
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(non_snake_case)]
+struct OrganizationSsoUpdateData {
+    Enabled: bool,
+    Data: SsoOrganizationData,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(non_snake_case)]
+struct SsoOrganizationData {
+    Authority: Option<String>,
+    ClientId: Option<String>,
+    ClientSecret: Option<String>,
 }
 
 #[derive(Deserialize)]
