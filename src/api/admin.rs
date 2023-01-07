@@ -54,7 +54,7 @@ pub fn routes() -> Vec<Route> {
         update_organization,
         delete_organization,
         get_organization_sso,
-        update_organization_sso,
+        post_organization_sso,
         diagnostics,
         get_diagnostics_config
     ]
@@ -562,21 +562,21 @@ async fn get_organization_sso(uuid: String, _token: AdminToken, conn: DbConn) ->
 }
 
 #[post("/organizations/<uuid>/sso", data = "<data>")]
-async fn update_organization_sso(
+async fn post_organization_sso(
     uuid: String,
     _token: AdminToken,
     data: JsonUpcase<OrganizationSsoUpdateData>,
     mut conn: DbConn,
 ) -> JsonResult {
-    let p: OrganizationSsoUpdateData = data.into_inner().data;
-    let d: SsoOrganizationData = p.Data.unwrap();
+    let p = data.into_inner().data;
+    let d = p.Data;
 
     let mut sso_config = match SsoConfig::find_by_org(&uuid, &conn).await {
         Some(sso_config) => sso_config,
         None => SsoConfig::new(uuid),
     };
 
-    sso_config.use_sso = p.Enabled.unwrap_or_default();
+    sso_config.use_sso = p.Enabled;
 
     sso_config.authority = d.Authority;
     sso_config.client_id = d.ClientId;
@@ -589,8 +589,8 @@ async fn update_organization_sso(
 #[derive(Deserialize, Debug)]
 #[allow(non_snake_case)]
 struct OrganizationSsoUpdateData {
-    Enabled: Option<bool>,
-    Data: Option<SsoOrganizationData>,
+    Enabled: bool,
+    Data: SsoOrganizationData,
 }
 
 #[derive(Deserialize, Debug)]

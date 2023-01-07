@@ -31,7 +31,7 @@ pub fn routes() -> Vec<Route> {
         put_organization,
         post_organization,
         get_organization_sso,
-        put_organization_sso,
+        post_organization_sso,
         get_organization_auto_enroll_status,
         post_organization_collections,
         delete_organization_collection_user,
@@ -116,8 +116,8 @@ struct OrganizationUpdateData {
 #[derive(Deserialize, Debug)]
 #[allow(non_snake_case)]
 struct OrganizationSsoUpdateData {
-    Enabled: Option<bool>,
-    Data: Option<SsoOrganizationData>,
+    Enabled: bool,
+    Data: SsoOrganizationData,
 }
 
 #[derive(Deserialize)]
@@ -344,21 +344,21 @@ async fn get_organization_sso(org_id: String, _headers: OwnerHeaders, conn: DbCo
 }
 
 #[post("/organizations/<org_id>/sso", data = "<data>")]
-async fn put_organization_sso(
+async fn post_organization_sso(
     org_id: String,
     _headers: OwnerHeaders,
     data: JsonUpcase<OrganizationSsoUpdateData>,
     mut conn: DbConn,
 ) -> JsonResult {
-    let p: OrganizationSsoUpdateData = data.into_inner().data;
-    let d: SsoOrganizationData = p.Data.unwrap();
+    let p = data.into_inner().data;
+    let d = p.Data;
 
     let mut sso_config = match SsoConfig::find_by_org(&org_id, &conn).await {
         Some(sso_config) => sso_config,
         None => SsoConfig::new(org_id),
     };
 
-    sso_config.use_sso = p.Enabled.unwrap_or_default();
+    sso_config.use_sso = p.Enabled;
 
     sso_config.authority = d.Authority;
     sso_config.client_id = d.ClientId;
